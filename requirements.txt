@@ -1,6 +1,5 @@
 flask
 fpdf
 python-dotenv
-httpx
-werkzeug
+openai
 requests
