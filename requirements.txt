@@ -1,5 +1,4 @@
 flask
-fpdf
 python-dotenv
-openai
+fpdf
 requests
