@@ -1,67 +1,49 @@
 import os
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, jsonify
 import requests
-from fpdf import FPDF
-from io import BytesIO
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "openai/gpt-3.5-turbo"  # או מודל אחר מ־OpenRouter
+@app.route('/')
+def index():
+    return 'Whatsapp Book AI - Backend is live!'
 
 @app.route('/api/generate-book', methods=['POST'])
 def generate_book():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part in the request'}), 400
+    if not request.is_json:
+        return jsonify({'error': 'Request must be JSON'}), 415
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
+    data = request.get_json()
+    messages = data.get("messages", [])
 
-    content = file.read().decode('utf-8')
+    prompt = "תכתוב ספר מצחיק בעברית על הקבוצה הזאת:\n\n"
+    for m in messages:
+        prompt += f"{m['name']}: {m['text']}\n"
+    prompt += "\n---\nהספר:"
 
-    # שולח ל־OpenRouter (GPT)
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": "אתה עורך ספרים. הפוך את ההיסטוריה המצורפת לספר סיפורים מצחיק, מרגש ומסודר לפי נושאים"},
-            {"role": "user", "content": content}
-        ]
-    }
+    openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
 
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-    
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {openrouter_api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "openchat/openchat-7b:free",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+    )
+
     if response.status_code != 200:
-        return jsonify({"error": "Failed to get response from OpenRouter", "details": response.text}), 500
+        return jsonify({"error": f"API Error: {response.text}"}), response.status_code
 
-    result_text = response.json()['choices'][0]['message']['content']
-
-    # מייצר PDF
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    
-    for line in result_text.split("\n"):
-        pdf.multi_cell(0, 10, line)
-
-    pdf_stream = BytesIO()
-    pdf.output(pdf_stream)
-    pdf_stream.seek(0)
-
-    return send_file(pdf_stream, as_attachment=True, download_name="whatsapp_book.pdf", mimetype='application/pdf')
-
-
-@app.route('/')
-def home():
-    return "WhatsApp Book API is running!"
+    result = response.json()
+    book_text = result["choices"][0]["message"]["content"]
+    return jsonify({"book": book_text})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
