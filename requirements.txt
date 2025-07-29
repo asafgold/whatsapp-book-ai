@@ -1,7 +1,5 @@
 flask
-gunicorn
 fpdf
 python-dotenv
 openai
-httpx
-requests
+werkzeug
