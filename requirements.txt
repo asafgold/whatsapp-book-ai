@@ -1,4 +1,7 @@
 flask
-python-dotenv
+gunicorn
 fpdf
+python-dotenv
+openai
+httpx
 requests
