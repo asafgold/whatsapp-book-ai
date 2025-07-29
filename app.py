@@ -1,12 +1,11 @@
 from flask import Flask, request, send_file
 from fpdf import FPDF
 import os
-import requests
 from dotenv import load_dotenv
+import requests
 
 load_dotenv()
-
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 app = Flask(__name__)
 
@@ -15,28 +14,29 @@ def parse_chat(file_path):
         return f.read()
 
 def ask_openrouter(chat_text):
-    prompt = f"""
-    צור לי ספר קצר ומצחיק, שמתבסס על שיחת הקבוצה בוואטסאפ. חלק אותו לפרקים מעניינים (למשל: "הגיע הזמן לחופשה", "מי שכח את הילקוט?", "ההפתעה של מיכל", "פדיחה עם המורה"), וכתוב את הסיפורים בצורה קלילה ונעימה.
-    השיחה:
-    {chat_text[:5000]}
-    """
-
+    url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
 
     data = {
-        "model": "openrouter/gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}]
+        "model": "openai/gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": f"""
+                צור לי ספר קצר ומצחיק, שמתבסס על שיחת הקבוצה בוואטסאפ. חלק אותו לפרקים מעניינים (למשל: "הגיע הזמן לחופשה", "מי שכח את הילקוט?", "ההפתעה של מיכל", "פדיחה עם המורה"), וכתוב את הסיפורים בצורה קלילה ונעימה.
+                השיחה:
+                {chat_text[:5000]}
+                """
+            }
+        ]
     }
 
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-
-    if response.status_code != 200:
-        raise Exception(f"OpenRouter Error: {response.status_code}, {response.text}")
-
-    return response.json()["choices"][0]["message"]["content"]
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+    return result['choices'][0]['message']['content']
 
 def create_pdf(content, output_path):
     pdf = FPDF()
@@ -57,10 +57,7 @@ def generate_book():
     file.save(filename)
 
     raw_text = parse_chat(filename)
-    try:
-        book_text = ask_openrouter(raw_text)
-    except Exception as e:
-        return f"Failed to generate book: {str(e)}", 500
+    book_text = ask_openrouter(raw_text)
 
     output_pdf = "generated_book.pdf"
     create_pdf(book_text, output_pdf)
