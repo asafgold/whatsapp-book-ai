@@ -1,66 +1,54 @@
-
 import os
-from flask import Flask, request, jsonify, send_file
+import tempfile
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-from werkzeug.utils import secure_filename
-from fpdf import FPDF
-from dotenv import load_dotenv
-import openai
-import uuid
+import requests
 
-load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = "uploads"
-OUTPUT_FOLDER = "output"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
     if "file" not in request.files:
-        return jsonify({"error": "Missing file"}), 400
+        return jsonify({"error": "No file uploaded"}), 400
 
-    uploaded_file = request.files["file"]
-    if uploaded_file.filename == "":
-        return jsonify({"error": "Empty filename"}), 400
+    file = request.files["file"]
+    file_content = file.read().decode("utf-8")
 
-    filename = secure_filename(uploaded_file.filename)
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
-    uploaded_file.save(file_path)
+    prompt = f"""
+    קובץ זה מכיל את היסטוריית הצ'אט של קבוצת וואטסאפ. צור ספר PDF מעניין, מצחיק ומרגש הכולל:
+    - סיפורים משעשעים מתוך הקבוצה
+    - רגעים בלתי נשכחים
+    - פילוח של מי כתב הכי הרבה ומי הכי שתק
+    - רגעים מרגשים
+    - כולל עיצוב ספר
 
-    with open(file_path, "r", encoding="utf-8") as f:
-        chat_text = f.read()
+    הנה ההיסטוריה:
+    {file_content[:10000]}  # חותכים ל־10000 תווים כדי לא להעמיס
+    """
 
-    prompt = f"""העבר את תוכן קובץ הוואטסאפ הבא לספר עם סיפור מצחיק, תקציר נתונים מעניינים וכותרות פרקים, הכל בעברית:
-----
-{chat_text}
-"""
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    openai.api_key = os.getenv("OPENROUTER_API_KEY")
-    response = openai.ChatCompletion.create(
-        model="openchat/openchat-7b",
-        messages=[
-            {"role": "system", "content": "אתה עורך ספרים מומחה"},
-            {"role": "user", "content": prompt}
-        ]
-    )
+    json_data = {
+        "model": "openai/gpt-4",
+        "messages": [{"role": "user", "content": prompt}]
+    }
 
-    output_text = response["choices"][0]["message"]["content"]
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=json_data)
 
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    for line in output_text.split("\n"):
-        pdf.cell(200, 10, txt=line.strip(), ln=True)
+    if response.status_code != 200:
+        return jsonify({"error": "Failed to generate book"}), 500
 
-    output_filename = f"{uuid.uuid4().hex}.pdf"
-    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
-    pdf.output(output_path)
+    gpt_output = response.json()["choices"][0]["message"]["content"]
 
-    return send_file(output_path, as_attachment=True, download_name="whatsapp_book.pdf")
+    # שמירה זמנית לקובץ PDF (כ־.txt לצורך הדגמה)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+        tmp.write(gpt_output.encode("utf-8"))
+        tmp_path = tmp.name
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=10000)
+    return jsonify({"message": "Book generated successfully", "path": tmp_path})
