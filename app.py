@@ -1,59 +1,29 @@
 import os
-import json
 from flask import Flask, request, jsonify
-import requests
+from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-@app.route("/", methods=["GET"])
+@app.route('/')
 def index():
-    return "API is running"
+    return "WhatsApp Book AI is running."
 
-@app.route("/upload", methods=["POST"])
-def upload():
+@app.route('/api/generate-book', methods=['POST'])
+def generate_book():
     if 'file' not in request.files:
-        return jsonify({"error": "לא נשלח קובץ"}), 400
+        return jsonify({'error': 'No file uploaded'}), 400
 
     file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "שם קובץ ריק"}), 400
+    content = file.read().decode('utf-8')
 
-    try:
-        # קריאת תוכן הקובץ
-        chat_text = file.read().decode('utf-8')
+    # כאן תוכל לקרוא ל-GPT ולעשות כל עיבוד
+    return jsonify({'message': 'הקובץ התקבל', 'content': content[:100]})
 
-        # שליחת הבקשה ל-OpenRouter
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "openrouter/gpt-3.5-turbo",  # אפשר לשנות למודל אחר
-            "messages": [
-                {
-                    "role": "user",
-                    "content": f"סכם את שיחת ה-WhatsApp הבאה והפוך אותה לפרק בספר מודפס:\n\n{chat_text}"
-                }
-            ]
-        }
 
-        response = requests.post(url, headers=headers, json=data)
-
-        if response.status_code != 200:
-            return jsonify({"error": f"שגיאה משרת OpenRouter: {response.text}"}), 500
-
-        result = response.json()
-        message = result['choices'][0]['message']['content']
-        return jsonify({"result": message})
-
-    except Exception as e:
-        return jsonify({"error": f"שגיאה בשרת: {str(e)}"}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
