@@ -1,4 +1,4 @@
-flask
-openai
-fpdf
+Flask
 python-dotenv
+requests
+fpdf
