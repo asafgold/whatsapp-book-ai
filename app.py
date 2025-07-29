@@ -1,74 +1,59 @@
 import os
+import json
 from flask import Flask, request, jsonify
-from fpdf import FPDF
-import httpx
+import requests
 from dotenv import load_dotenv
-from datetime import datetime
 
 load_dotenv()
 
 app = Flask(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "openrouter/gpt-3.5-turbo"
 
-@app.route("/api/generate-book", methods=["POST"])
-def generate_book():
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
+@app.route("/", methods=["GET"])
+def index():
+    return "API is running"
 
-    data = request.get_json()
-    content = data.get("content", "")
+@app.route("/upload", methods=["POST"])
+def upload():
+    if 'file' not in request.files:
+        return jsonify({"error": "לא נשלח קובץ"}), 400
 
-    if not content:
-        return jsonify({"error": "Missing 'content' field"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "שם קובץ ריק"}), 400
 
     try:
-        summary = call_openrouter(content)
-        pdf_path = generate_pdf(summary)
-        return jsonify({"summary": summary, "pdf_url": pdf_path})
+        # קריאת תוכן הקובץ
+        chat_text = file.read().decode('utf-8')
+
+        # שליחת הבקשה ל-OpenRouter
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "openrouter/gpt-3.5-turbo",  # אפשר לשנות למודל אחר
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"סכם את שיחת ה-WhatsApp הבאה והפוך אותה לפרק בספר מודפס:\n\n{chat_text}"
+                }
+            ]
+        }
+
+        response = requests.post(url, headers=headers, json=data)
+
+        if response.status_code != 200:
+            return jsonify({"error": f"שגיאה משרת OpenRouter: {response.text}"}), 500
+
+        result = response.json()
+        message = result['choices'][0]['message']['content']
+        return jsonify({"result": message})
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-def call_openrouter(content):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant who summarizes WhatsApp conversations."},
-            {"role": "user", "content": f"Please summarize the following WhatsApp chat:\n\n{content}"}
-        ]
-    }
-
-    response = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-    response.raise_for_status()
-
-    return response.json()["choices"][0]["message"]["content"]
-
-def generate_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-
-    for line in text.split("\n"):
-        pdf.multi_cell(0, 10, line)
-
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"book_{timestamp}.pdf"
-    filepath = os.path.join("static", filename)
-
-    os.makedirs("static", exist_ok=True)
-    pdf.output(filepath)
-
-    return f"/static/{filename}"
-
-@app.route("/")
-def index():
-    return "WhatsApp Book AI is live."
+        return jsonify({"error": f"שגיאה בשרת: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)
