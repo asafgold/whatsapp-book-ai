@@ -1,11 +1,12 @@
 from flask import Flask, request, send_file
 from fpdf import FPDF
-import openai
 import os
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 
@@ -14,10 +15,6 @@ def parse_chat(file_path):
         return f.read()
 
 def ask_openai(chat_text):
-    from openai import OpenAI
-
-    client = OpenAI(api_key=openai.api_key)
-
     prompt = f"""
     צור לי ספר קצר ומצחיק, שמתבסס על שיחת הקבוצה בוואטסאפ. חלק אותו לפרקים מעניינים (למשל: "הגיע הזמן לחופשה", "מי שכח את הילקוט?", "ההפתעה של מיכל", "פדיחה עם המורה"), וכתוב את הסיפורים בצורה קלילה ונעימה.
     השיחה:
@@ -59,4 +56,3 @@ def generate_book():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
