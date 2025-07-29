@@ -10,21 +10,25 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 app = Flask(__name__)
 
 def parse_chat(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r', encoding="utf-8") as f:
         return f.read()
 
 def ask_openai(chat_text):
-    prompt = f'''
-    צור לי ספר קצר ונוסטלגי שמתבסס על שיחה מקבוצת וואטסאפ. חלק אותו לפרקים מעניינים (למשל: "רגעים מצחיקים", "התחלה", "הודעות בלתי נשכחות", "הכי חופר", וכו') וכתוב אותו בעברית קלילה וזורמת.
+    from openai import OpenAI
 
+    client = OpenAI(api_key=openai.api_key)
+
+    prompt = f"""
+    צור לי ספר קצר ומצחיק, שמתבסס על שיחת הקבוצה בוואטסאפ. חלק אותו לפרקים מעניינים (למשל: "הגיע הזמן לחופשה", "מי שכח את הילקוט?", "ההפתעה של מיכל", "פדיחה עם המורה"), וכתוב את הסיפורים בצורה קלילה ונעימה.
     השיחה:
     {chat_text[:5000]}
-    '''
+    """
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}]
     )
+
     return response.choices[0].message.content
 
 def create_pdf(content, output_path):
@@ -36,7 +40,7 @@ def create_pdf(content, output_path):
         pdf.multi_cell(0, 10, line)
     pdf.output(output_path)
 
-@app.route('/api/generate-book', methods=['POST'])
+@app.route("/api/generate-book", methods=["POST"])
 def generate_book():
     if 'chat_file' not in request.files:
         return "Missing file", 400
@@ -53,5 +57,6 @@ def generate_book():
 
     return send_file(output_pdf, as_attachment=True)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
