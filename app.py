@@ -1,20 +1,52 @@
 import os
-from flask import Flask, request, jsonify, send_file
+import requests
+from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
-import tempfile
-import openai
 from fpdf import FPDF
+import tempfile
 
 app = Flask(__name__)
 CORS(app)
 
-openai.api_key = os.environ.get("OPENROUTER_API_KEY")
-openai.api_base = "https://openrouter.ai/api/v1"
-openai.api_type = "openai"
-openai.api_version = None
+# הפונקציה שמדברת עם OpenRouter
+def generate_book(chat_text):
+    headers = {
+        "Authorization": f"Bearer {os.environ.get('OPENROUTER_API_KEY')}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://yourdomain.com",  # שים את כתובת האתר שלך כאן
+        "X-Title": "WhatsApp Book"
+    }
 
-@app.route("/api/generate-book", methods=["POST"])
-def generate_book():
+    messages = [
+        {"role": "system", "content": "אתה עוזר שמסכם שיחות ויוצר ספר PDF מצחיק ומעניין."},
+        {"role": "user", "content": f"היסטוריית השיחה:\n{chat_text}"}
+    ]
+
+    data = {
+        "model": "openrouter/mistralai/mistral-7b-instruct",  # תוכל להחליף למודל אחר אם תרצה
+        "messages": messages,
+    }
+
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
+    response.raise_for_status()
+
+    return response.json()["choices"][0]["message"]["content"]
+
+# הפונקציה שמייצרת PDF
+def create_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    for line in text.split('\n'):
+        pdf.multi_cell(0, 10, line)
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    pdf.output(temp_file.name)
+    return temp_file.name
+
+# נקודת קצה לקבלת קובץ ויצירת ספר
+@app.route('/api/generate-book', methods=['POST'])
+def generate_book_endpoint():
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -22,37 +54,13 @@ def generate_book():
     if file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
 
-    content = file.read().decode("utf-8")
-    messages = [
-        {
-            "role": "system",
-            "content": "אתה עורך ספרים. תיצור לי תוכן לספר מעניין, מרגש ומצחיק לפי ההיסטוריה של קבוצת וואטסאפ. כלול גם נתונים, רגעים זכורים, בדיחות פרטיות, תיאורים, וגם הצעות לשם לספר."
-        },
-        {
-            "role": "user",
-            "content": content
-        }
-    ]
+    chat_text = file.read().decode('utf-8')
+    try:
+        summary = generate_book(chat_text)
+        pdf_path = create_pdf(summary)
+        return send_file(pdf_path, as_attachment=True, download_name='whatsapp_book.pdf')
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    response = openai.ChatCompletion.create(
-        model="openrouter/mistralai/mistral-7b-instruct",  # תוכל לשנות ל־gpt-4 או אחר
-        messages=messages
-    )
-
-    book_text = response['choices'][0]['message']['content']
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    for line in book_text.split("\n"):
-        pdf.multi_cell(0, 10, line)
-
-    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    pdf.output(tmp_file.name)
-    tmp_file.close()
-
-    return send_file(tmp_file.name, as_attachment=True, download_name="whatsapp_book.pdf")
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0')
