@@ -3,3 +3,4 @@ fpdf
 python-dotenv
 httpx
 werkzeug
+requests
