@@ -1,5 +1,5 @@
 flask
 fpdf
 python-dotenv
-openrouter
-openai
+httpx
+werkzeug
