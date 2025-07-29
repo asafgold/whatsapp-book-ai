@@ -1,5 +1,5 @@
-flask
-fpdf
+Flask
+flask-cors
 python-dotenv
 openai
-werkzeug
+fpdf
