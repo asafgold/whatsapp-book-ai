@@ -1,43 +1,74 @@
-from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
 import os
+from flask import Flask, request, jsonify
+from fpdf import FPDF
+import httpx
+from dotenv import load_dotenv
+from datetime import datetime
+
+load_dotenv()
 
 app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return "API is live."
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+MODEL = "openrouter/gpt-3.5-turbo"
 
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
-    # בדיקה שהקובץ קיים בבקשה
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
 
-    file = request.files['file']
+    data = request.get_json()
+    content = data.get("content", "")
 
-    if file.filename == '':
-        return jsonify({"error": "No file selected"}), 400
+    if not content:
+        return jsonify({"error": "Missing 'content' field"}), 400
 
-    # שמירת הקובץ
-    filename = secure_filename(file.filename)
-    filepath = os.path.join("/tmp", filename)
-    file.save(filepath)
-
-    # קריאת תוכן הקובץ
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read()
+        summary = call_openrouter(content)
+        pdf_path = generate_pdf(summary)
+        return jsonify({"summary": summary, "pdf_url": pdf_path})
     except Exception as e:
-        return jsonify({"error": f"Failed to read file: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
-    # כאן תוכל להוסיף עיבוד, שליחה ל־OpenRouter וכו'
-    # למשל: שלח את התוכן למודל AI או הפוך אותו ל־PDF
+def call_openrouter(content):
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    return jsonify({
-        "message": f"File '{filename}' received and read successfully.",
-        "preview": content[:300]  # הצצה לתוכן
-    })
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant who summarizes WhatsApp conversations."},
+            {"role": "user", "content": f"Please summarize the following WhatsApp chat:\n\n{content}"}
+        ]
+    }
+
+    response = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+    response.raise_for_status()
+
+    return response.json()["choices"][0]["message"]["content"]
+
+def generate_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+
+    for line in text.split("\n"):
+        pdf.multi_cell(0, 10, line)
+
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"book_{timestamp}.pdf"
+    filepath = os.path.join("static", filename)
+
+    os.makedirs("static", exist_ok=True)
+    pdf.output(filepath)
+
+    return f"/static/{filename}"
+
+@app.route("/")
+def index():
+    return "WhatsApp Book AI is live."
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
