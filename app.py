@@ -1,49 +1,43 @@
-import os
 from flask import Flask, request, jsonify
-import requests
+from werkzeug.utils import secure_filename
+import os
 
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return 'Whatsapp Book AI - Backend is live!'
+@app.route("/")
+def home():
+    return "API is live."
 
-@app.route('/api/generate-book', methods=['POST'])
+@app.route("/api/generate-book", methods=["POST"])
 def generate_book():
-    if not request.is_json:
-        return jsonify({'error': 'Request must be JSON'}), 415
+    # בדיקה שהקובץ קיים בבקשה
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
 
-    data = request.get_json()
-    messages = data.get("messages", [])
+    file = request.files['file']
 
-    prompt = "תכתוב ספר מצחיק בעברית על הקבוצה הזאת:\n\n"
-    for m in messages:
-        prompt += f"{m['name']}: {m['text']}\n"
-    prompt += "\n---\nהספר:"
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
 
-    openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+    # שמירת הקובץ
+    filename = secure_filename(file.filename)
+    filepath = os.path.join("/tmp", filename)
+    file.save(filepath)
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {openrouter_api_key}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "openchat/openchat-7b:free",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ]
-        }
-    )
+    # קריאת תוכן הקובץ
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        return jsonify({"error": f"Failed to read file: {str(e)}"}), 500
 
-    if response.status_code != 200:
-        return jsonify({"error": f"API Error: {response.text}"}), response.status_code
+    # כאן תוכל להוסיף עיבוד, שליחה ל־OpenRouter וכו'
+    # למשל: שלח את התוכן למודל AI או הפוך אותו ל־PDF
 
-    result = response.json()
-    book_text = result["choices"][0]["message"]["content"]
-    return jsonify({"book": book_text})
+    return jsonify({
+        "message": f"File '{filename}' received and read successfully.",
+        "preview": content[:300]  # הצצה לתוכן
+    })
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
