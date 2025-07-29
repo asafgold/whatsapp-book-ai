@@ -1,12 +1,13 @@
 from flask import Flask, request, send_file
 from fpdf import FPDF
 import os
-from openai import OpenAI
+import openai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
 
 app = Flask(__name__)
 
@@ -21,12 +22,12 @@ def ask_openai(chat_text):
     {chat_text[:5000]}
     """
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
+    response = openai.ChatCompletion.create(
+        model="openai/gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt}]
     )
 
-    return response.choices[0].message.content
+    return response['choices'][0]['message']['content']
 
 def create_pdf(content, output_path):
     pdf = FPDF()
