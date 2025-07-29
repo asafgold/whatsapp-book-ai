@@ -1,60 +1,55 @@
-
+import os
+import openai
 from flask import Flask, request, send_file
 from fpdf import FPDF
-import os
-from openai import OpenAI
-from dotenv import load_dotenv
+import tempfile
 
-load_dotenv()
-
-client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
-)
+# הגדרות OpenRouter
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
+openai.api_base = "https://openrouter.ai/api/v1"
 
 app = Flask(__name__)
 
-def parse_chat(file_path):
-    with open(file_path, 'r', encoding="utf-8") as f:
-        return f.read()
-
-def ask_openai(chat_text):
-    prompt = """
-המשתמש העלה קובץ היסטוריה של קבוצת וואטסאפ. צור לו תמצית מצחיקה או מעניינת של מה שהיה שם, סיכום קצר עם רגעים בולטים, דמויות שחוזרות, או תופעות מעניינות.
-"""
-    chat_text = chat_text[:5000]
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt + chat_text}]
-    )
-    return response.choices[0].message.content
-
-def create_pdf(content, output_path):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    for line in content.split("\n"):
-        pdf.multi_cell(0, 10, line)
-    pdf.output(output_path)
-
-@app.route("/api/generate-book", methods=["POST"])
+@app.route('/api/generate-book', methods=['POST'])
 def generate_book():
     if 'file' not in request.files:
         return "Missing file", 400
 
-    file = request.files['file']
-    file_path = "/tmp/chat.txt"
-    file.save(file_path)
+    uploaded_file = request.files['file']
+    if uploaded_file.filename == '':
+        return "Empty filename", 400
 
-    chat_text = parse_chat(file_path)
-    summary = ask_openai(chat_text)
+    file_content = uploaded_file.read().decode('utf-8')
 
-    output_path = "/tmp/book.pdf"
-    create_pdf(summary, output_path)
+    # בקשת סיכום מהמודל
+    prompt = f"""הקובץ הבא מכיל שיחות WhatsApp של קבוצה. כתוב סיכום מעניין של מה שקרה, כלול נקודות עיקריות, רגעים מצחיקים ודמויות מרכזיות:
+    
+    {file_content[:3000]}"""  # נגביל כדי לא לחרוג מהמגבלות
 
-    return send_file(output_path, as_attachment=True, download_name="book.pdf")
+    try:
+        response = openai.ChatCompletion.create(
+            model="mistralai/mixtral-8x7b",  # אפשר גם gpt-4 אם מוגדר
+            messages=[
+                {"role": "system", "content": "אתה עורך ספרים מקצועי שמתמחה בסיכומי קבוצות וואטסאפ."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        summary = response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"שגיאה מהמודל: {e}", 500
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    # יצירת PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    for line in summary.split('\n'):
+        pdf.multi_cell(0, 10, line)
+
+    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    pdf.output(temp_pdf.name)
+
+    return send_file(temp_pdf.name, as_attachment=True, download_name="whatsapp_book.pdf")
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
