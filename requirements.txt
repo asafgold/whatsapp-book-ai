@@ -2,3 +2,4 @@ flask
 fpdf
 python-dotenv
 openrouter
+openai
