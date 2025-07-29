@@ -1,66 +1,67 @@
-from flask import Flask, request, send_file
-from fpdf import FPDF
 import os
-import requests
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from fpdf import FPDF
+from werkzeug.utils import secure_filename
+import openai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
 app = Flask(__name__)
+CORS(app)
 
-def parse_chat(file_path):
-    with open(file_path, 'r', encoding="utf-8") as f:
-        return f.read()
+app.config['UPLOAD_FOLDER'] = 'uploads'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-def ask_openrouter(chat_text):
-    prompt = f"""
-המשתמש העלה קובץ היסטוריה של קבוצת וואטסאפ. צור לו תמצית מצחיקה או מעניינת של מה שהיה שם, סיכום קצר עם רגעים בולטים, דמויות שחוזרות, או תופעות מעניינות.
-השיחה:
-{chat_text[:5000]}
-    """
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
+openai.api_base = "https://openrouter.ai/api/v1"
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "model": "openai/gpt-4",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-    result = response.json()
-    return result["choices"][0]["message"]["content"]
-
-def create_pdf(content, output_path):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    for line in content.split("\n"):
-        pdf.multi_cell(0, 10, line)
-    pdf.output(output_path)
-
-@app.route("/api/generate-book", methods=["POST"])
+@app.route('/generate-book', methods=['POST'])
 def generate_book():
     if 'file' not in request.files:
-        return "Missing file", 400
+        return jsonify({'error': 'No file part in the request'}), 400
 
     file = request.files['file']
-    file_path = "/tmp/chat.txt"
-    file.save(file_path)
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
 
-    chat_text = parse_chat(file_path)
-    summary = ask_openrouter(chat_text)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
 
-    output_path = "/tmp/book.pdf"
-    create_pdf(summary, output_path)
+    with open(filepath, 'r', encoding='utf-8') as f:
+        chat_text = f.read()
 
-    return send_file(output_path, as_attachment=True, download_name="book.pdf")
+    # שלח את הטקסט ל-OpenRouter
+    try:
+        response = openai.ChatCompletion.create(
+            model="openchat/openchat-3.5-0106",
+            messages=[
+                {"role": "system", "content": "אתה כותב מצחיק, מסכם היסטוריית קבוצת וואטסאפ לספר מהנה."},
+                {"role": "user", "content": f"סכם את ההיסטוריה של קבוצת הוואטסאפ לספר קצר, מצחיק, עם תובנות, רגעים חשובים, ונתונים מעניינים:\n\n{chat_text}"}
+            ]
+        )
+        summary_text = response['choices'][0]['message']['content']
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בקריאת OpenRouter: {str(e)}'}), 500
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    # צור PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+    pdf.set_font("DejaVu", size=12)
+    pdf.multi_cell(0, 10, summary_text)
+
+    pdf_filename = os.path.splitext(filename)[0] + "_book.pdf"
+    pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_filename)
+    pdf.output(pdf_path)
+
+    return jsonify({'filename': pdf_filename})
+
+@app.route('/')
+def home():
+    return "Server is running"
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=10000)
