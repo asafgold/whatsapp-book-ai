@@ -1,11 +1,16 @@
 from flask import Flask, request, send_file
 from fpdf import FPDF
+import openai
 import os
 from dotenv import load_dotenv
-import requests
 
+# טען משתני סביבה
 load_dotenv()
-API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# הגדר חיבור ל-OpenRouter במקום OpenAI
+openai.api_base = "https://openrouter.ai/api/v1"
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
+openai.organization = ""
 
 app = Flask(__name__)
 
@@ -13,30 +18,19 @@ def parse_chat(file_path):
     with open(file_path, 'r', encoding="utf-8") as f:
         return f.read()
 
-def ask_openrouter(chat_text):
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
+def ask_openai(chat_text):
+    prompt = f"""
+    צור לי ספר קצר ומצחיק, שמתבסס על שיחת הקבוצה בוואטסאפ. חלק אותו לפרקים מעניינים (למשל: "הגיע הזמן לחופשה", "מי שכח את הילקוט?", "ההפתעה של מיכל", "פדיחה עם המורה"), וכתוב את הסיפורים בצורה קלילה ונעימה.
+    השיחה:
+    {chat_text[:5000]}
+    """
 
-    data = {
-        "model": "openai/gpt-4o",
-        "messages": [
-            {
-                "role": "user",
-                "content": f"""
-                צור לי ספר קצר ומצחיק, שמתבסס על שיחת הקבוצה בוואטסאפ. חלק אותו לפרקים מעניינים (למשל: "הגיע הזמן לחופשה", "מי שכח את הילקוט?", "ההפתעה של מיכל", "פדיחה עם המורה"), וכתוב את הסיפורים בצורה קלילה ונעימה.
-                השיחה:
-                {chat_text[:5000]}
-                """
-            }
-        ]
-    }
+    response = openai.ChatCompletion.create(
+        model="mistralai/mixtral-8x7b",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
-    response = requests.post(url, headers=headers, json=data)
-    result = response.json()
-    return result['choices'][0]['message']['content']
+    return response.choices[0].message["content"]
 
 def create_pdf(content, output_path):
     pdf = FPDF()
@@ -57,7 +51,7 @@ def generate_book():
     file.save(filename)
 
     raw_text = parse_chat(filename)
-    book_text = ask_openrouter(raw_text)
+    book_text = ask_openai(raw_text)
 
     output_pdf = "generated_book.pdf"
     create_pdf(book_text, output_pdf)
