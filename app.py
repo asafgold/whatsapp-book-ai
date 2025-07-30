@@ -11,7 +11,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
-    # בדיקה שיש קובץ
     if 'file' not in request.files:
         return jsonify({"error": "לא נשלח קובץ"}), 400
 
@@ -20,12 +19,12 @@ def generate_book():
         return jsonify({"error": "שם קובץ ריק"}), 400
 
     try:
-        # קריאה לקובץ
         text = uploaded_file.read().decode('utf-8')
+        if len(text.strip()) == 0:
+            return jsonify({"error": "הקובץ ריק"}), 400
     except Exception as e:
         return jsonify({"error": f"שגיאה בקריאת הקובץ: {str(e)}"}), 400
 
-    # הגדרת הקריאה ל-OpenRouter
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
@@ -34,7 +33,7 @@ def generate_book():
     body = {
         "model": "openrouter/gpt-4o",
         "messages": [
-            {"role": "system", "content": "הפוך את ההיסטוריה לסיפור מצחיק וקליל בסגנון ספר"},
+            {"role": "system", "content": "הפוך את ההיסטוריה של השיחה לסיפור מצחיק ומסודר בסגנון ספר"},
             {"role": "user", "content": text}
         ]
     }
@@ -48,15 +47,14 @@ def generate_book():
 
         if not response.ok:
             return jsonify({
-                "error": f"שגיאת OpenRouter: {response.status_code} {response.text}"
+                "error": f"שגיאת OpenRouter ({response.status_code}): {response.text}"
             }), 500
 
         result = response.json()
         book_text = result['choices'][0]['message']['content']
     except Exception as e:
-        return jsonify({"error": f"שגיאה כללית: {str(e)}"}), 500
+        return jsonify({"error": f"שגיאה בתקשורת עם OpenRouter: {str(e)}"}), 500
 
-    # יצירת PDF
     try:
         pdf = FPDF()
         pdf.add_page()
