@@ -51,7 +51,12 @@ def generate_book():
             }), 500
 
         result = response.json()
-        book_text = result['choices'][0]['message']['content']
+
+        try:
+            book_text = result['choices'][0]['message']['content']
+        except Exception as e:
+            return jsonify({"error": f"שגיאה בפענוח תגובת OpenRouter: {str(e)} - תוכן: {result}"}), 500
+
     except Exception as e:
         return jsonify({"error": f"שגיאה בתקשורת עם OpenRouter: {str(e)}"}), 500
 
