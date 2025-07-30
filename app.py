@@ -9,6 +9,19 @@ CORS(app)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+FONT_PATH = "NotoSansHebrew-Regular.ttf"
+
+class PDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        self.add_page()
+        self.add_font('Noto', '', FONT_PATH, uni=True)
+        self.set_font('Noto', '', 14)
+
+    def write_hebrew_text(self, text):
+        for line in text.split('\n'):
+            self.multi_cell(0, 10, txt=line, align='R')
+
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
     if 'file' not in request.files:
@@ -31,7 +44,7 @@ def generate_book():
     }
 
     body = {
-        "model": "openai/gpt-3.5-turbo",  # ✅ מודל תקף
+        "model": "openai/gpt-3.5-turbo",
         "messages": [
             {"role": "system", "content": "הפוך את ההיסטוריה של השיחה לסיפור מצחיק ומסודר בסגנון ספר"},
             {"role": "user", "content": text}
@@ -39,42 +52,24 @@ def generate_book():
     }
 
     try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=body
-        )
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=body)
 
         if not response.ok:
-            return jsonify({
-                "error": f"שגיאת OpenRouter ({response.status_code}): {response.text}"
-            }), 500
+            return jsonify({"error": f"שגיאת OpenRouter ({response.status_code}): {response.text}"}), 500
 
         result = response.json()
-
-        try:
-            book_text = result['choices'][0]['message']['content']
-        except Exception as e:
-            return jsonify({"error": f"שגיאה בפענוח תגובת OpenRouter: {str(e)} - תוכן: {result}"}), 500
-
+        book_text = result['choices'][0]['message']['content']
     except Exception as e:
         return jsonify({"error": f"שגיאה בתקשורת עם OpenRouter: {str(e)}"}), 500
 
     try:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-
-        for line in book_text.split('\n'):
-            pdf.multi_cell(0, 10, line)
-
+        pdf = PDF()
+        pdf.write_hebrew_text(book_text)
         output_path = "/tmp/book.pdf"
         pdf.output(output_path)
-
         return send_file(output_path, as_attachment=True, download_name="book.pdf")
     except Exception as e:
         return jsonify({"error": f"שגיאה ביצירת PDF: {str(e)}"}), 500
-
 
 @app.route("/")
 def home():
