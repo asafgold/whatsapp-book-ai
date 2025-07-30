@@ -2,10 +2,12 @@ import os
 from flask import Flask, request, send_file, jsonify
 import requests
 from fpdf import FPDF
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # מאפשר שליחה מהאתר שלך (אם נחסם קודם)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # ודא שזה מוגדר ב-Render
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
@@ -16,16 +18,15 @@ def generate_book():
     if uploaded_file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
 
-    # קריאת טקסט מתוך הקובץ
     text = uploaded_file.read().decode('utf-8')
 
-    # הכנת בקשה ל-OpenRouter
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
+
     body = {
-        "model": "mistralai/mistral-7b-instruct",  # או כל מודל אחר הנתמך ע"י OpenRouter
+        "model": "openrouter/gpt-4o",  # מודל תקין בוודאות
         "messages": [
             {"role": "system", "content": "הפוך את ההיסטוריה לסיפור מצחיק וקליל בסגנון ספר"},
             {"role": "user", "content": text}
@@ -44,7 +45,6 @@ def generate_book():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    # יצירת PDF
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
@@ -58,3 +58,6 @@ def generate_book():
 @app.route("/")
 def home():
     return "API is running"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
