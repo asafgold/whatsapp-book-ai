@@ -1,9 +1,12 @@
 from flask import Flask, request, send_file, jsonify
+from flask_cors import CORS
 from fpdf import FPDF
 import os
 import tempfile
 
 app = Flask(__name__)
+CORS(app)  # מתיר קריאות מהאתר שלך
+
 FONT_PATH = "NotoSansHebrewVariableFont.ttf"
 
 class HebrewPDF(FPDF):
@@ -17,13 +20,10 @@ class HebrewPDF(FPDF):
     def write_text(self, text):
         lines = text.split('\n')
         for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                self.multi_cell(0, 10, txt=line, align='R')
-            except Exception as e:
-                self.multi_cell(0, 10, txt=f"[שגיאה בשורה: {str(e)}]", align='R')
+            if self.get_y() > 270:
+                self.add_page()
+                self.set_font("Noto", size=14)
+            self.multi_cell(0, 10, txt=line.strip(), align='R')
 
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
@@ -32,14 +32,16 @@ def generate_book():
         if not uploaded_file:
             return jsonify({"error": "❌ שגיאה: לא נשלח קובץ"}), 400
 
-        # קריאת התוכן
-        content = uploaded_file.read().decode("utf-8", errors="ignore").strip()
+        content = uploaded_file.read().decode("utf-8").strip()
         if not content:
             return jsonify({"error": "❌ שגיאה: הקובץ ריק"}), 400
 
         # יצירת PDF
         pdf = HebrewPDF()
-        pdf.write_text(content)
+        try:
+            pdf.write_text(content)
+        except Exception as e:
+            return jsonify({"error": f"❌ שגיאה בעת כתיבה לפידיאף: {str(e)}"}), 500
 
         pdf_path = os.path.join(tempfile.gettempdir(), "whatsapp_book.pdf")
         pdf.output(pdf_path)
@@ -48,13 +50,12 @@ def generate_book():
 
     except UnicodeDecodeError:
         return jsonify({"error": "❌ שגיאה: הקובץ אינו בקידוד UTF-8"}), 400
-
     except Exception as e:
         return jsonify({"error": f"❌ שגיאה כללית: {str(e)}"}), 500
 
 @app.route("/")
 def home():
-    return "API is running"
+    return "API is running ✅"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
