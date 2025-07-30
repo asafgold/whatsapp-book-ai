@@ -31,7 +31,7 @@ def generate_book():
     }
 
     body = {
-        "model": "openrouter/gpt-4o",
+        "model": "openai/gpt-3.5-turbo",  # ✅ מודל תקף
         "messages": [
             {"role": "system", "content": "הפוך את ההיסטוריה של השיחה לסיפור מצחיק ומסודר בסגנון ספר"},
             {"role": "user", "content": text}
