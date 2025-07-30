@@ -1,79 +1,83 @@
-import os
-from flask import Flask, request, send_file, jsonify
-import requests
+from flask import Flask, request, send_file, jsonify, render_template_string
 from fpdf import FPDF
-from flask_cors import CORS
+import os
+import tempfile
 
 app = Flask(__name__)
-CORS(app)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# הגדרת שם הפונט
+FONT_PATH = "NotoSansHebrewVariableFont.ttf"
+FONT_NAME = "Noto"
 
-FONT_PATH = "NotoSansHebrew-Regular.ttf"
+# HTML להצגת הטופס והתוצאה
+HTML_FORM = """
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>המרת וואטסאפ לספר</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 100px; }
+        #status { margin-top: 20px; padding: 10px; background-color: #fdd; color: #333; font-size: 18px; }
+        .success { background-color: #dfd; }
+    </style>
+</head>
+<body>
+    <form method="POST" action="/api/generate-book" enctype="multipart/form-data" id="bookForm">
+        <input type="file" name="file" required>
+        <button type="submit">📘 צור ספר PDF</button>
+    </form>
+    <div id="status" class="{{ status_class|default('') }}">
+        {{ message|default('') }}
+    </div>
+</body>
+</html>
+"""
 
-class PDF(FPDF):
+class HebrewPDF(FPDF):
     def __init__(self):
-        super().__init__()
+        super().__init__(orientation='P', unit='mm', format='A4')
         self.add_page()
-        self.add_font('Noto', '', FONT_PATH, uni=True)
-        self.set_font('Noto', '', 14)
+        self.add_font(FONT_NAME, "", FONT_PATH, uni=True)
+        self.set_font(FONT_NAME, size=14)
 
-    def write_hebrew_text(self, text):
-        for line in text.split('\n'):
-            self.multi_cell(0, 10, txt=line, align='R')
+    def write_text(self, text):
+        self.set_auto_page_break(auto=True, margin=15)
+        lines = text.split('\n')
+        for line in lines:
+            if self.get_y() > 270:
+                self.add_page()
+            self.multi_cell(0, 10, txt=line.strip(), align='R')
+
+@app.route("/", methods=["GET"])
+def home():
+    return render_template_string(HTML_FORM)
 
 @app.route("/api/generate-book", methods=["POST"])
 def generate_book():
-    if 'file' not in request.files:
-        return jsonify({"error": "לא נשלח קובץ"}), 400
-
-    uploaded_file = request.files['file']
-    if uploaded_file.filename == '':
-        return jsonify({"error": "שם קובץ ריק"}), 400
-
     try:
-        text = uploaded_file.read().decode('utf-8')
-        if len(text.strip()) == 0:
-            return jsonify({"error": "הקובץ ריק"}), 400
+        uploaded_file = request.files.get("file")
+        if not uploaded_file:
+            return render_template_string(HTML_FORM, message="❌ שגיאה: לא נשלח קובץ", status_class="error")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_txt:
+            uploaded_file.save(temp_txt.name)
+            temp_txt.seek(0)
+            content = temp_txt.read().decode("utf-8")
+
+        pdf = HebrewPDF()
+        pdf.write_text(content)
+
+        pdf_path = os.path.join(tempfile.gettempdir(), "whatsapp_book.pdf")
+        pdf.output(pdf_path)
+
+        return send_file(pdf_path, as_attachment=True, download_name="whatsapp_book.pdf")
+
+    except UnicodeDecodeError:
+        return render_template_string(HTML_FORM, message="❌ שגיאה: הקובץ אינו בפורמט UTF-8", status_class="error")
+
     except Exception as e:
-        return jsonify({"error": f"שגיאה בקריאת הקובץ: {str(e)}"}), 400
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    body = {
-        "model": "openai/gpt-3.5-turbo",
-        "messages": [
-            {"role": "system", "content": "הפוך את ההיסטוריה של השיחה לסיפור מצחיק ומסודר בסגנון ספר"},
-            {"role": "user", "content": text}
-        ]
-    }
-
-    try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=body)
-
-        if not response.ok:
-            return jsonify({"error": f"שגיאת OpenRouter ({response.status_code}): {response.text}"}), 500
-
-        result = response.json()
-        book_text = result['choices'][0]['message']['content']
-    except Exception as e:
-        return jsonify({"error": f"שגיאה בתקשורת עם OpenRouter: {str(e)}"}), 500
-
-    try:
-        pdf = PDF()
-        pdf.write_hebrew_text(book_text)
-        output_path = "/tmp/book.pdf"
-        pdf.output(output_path)
-        return send_file(output_path, as_attachment=True, download_name="book.pdf")
-    except Exception as e:
-        return jsonify({"error": f"שגיאה ביצירת PDF: {str(e)}"}), 500
-
-@app.route("/")
-def home():
-    return "API is running"
+        return render_template_string(HTML_FORM, message=f"❌ שגיאה: {str(e)}", status_class="error")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(debug=True)
